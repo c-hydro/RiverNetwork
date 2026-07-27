@@ -4,5 +4,5 @@ RiverNetwork
 
 Richiede i toolbox: Statistics, Mapping
 
-Guida dettagliata nel file **Manuale_RiverNetwork.pdf** o **Manuale_RiverNetwork.rst**
+Guida dettagliata nel file **Manuale_RiverNetwork.pdf**
 
