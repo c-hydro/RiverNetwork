@@ -4,7 +4,7 @@ classdef RiverNetwork
     %
     % CLASSE RiverNetwork
     % Autore: Lorenzo Campo
-    % Versione: 1.0.1
+    % Versione: 1.0.2
     %
     % Ricostruisce la struttura topologica di un reticolo fluviale a partire dai raster delle idroderivate (reticolo,
     % puntatori, aree drenate, i raster devono essere in coordinate geografiche lon-lat e non devono avere valori sui bordi)
@@ -47,7 +47,7 @@ classdef RiverNetwork
     %                                                       con n almeno un ordine di grandezza superiore al numero totale di rami,
     %                                                       es: reticolo con 1500 rami, codice dominio=10000 o 100000 o superiore). 
     %                                                       I rami e i bacini del reticolo avranno come codice codice_domino + un progressivo
-    %                           codici_puntatori (OPZIONALE, NON ATTIVO): matrice 3x3 con i codici delle direzioni di drenaggio coerenti con il raster puntatori.
+    %                           codici_puntatori (OPZIONALE): matrice 3x3 con i codici delle direzioni di drenaggio coerenti con il raster puntatori.
     %                                                         DEFAULT se non specificato: [7 8 9
     %                                                                                      4 5 6
     %                                                                                      1 2 3];
@@ -2489,6 +2489,11 @@ classdef RiverNetwork
             end
             input_RiverNetwork.codici_puntatori=P;
             
+            % Correzione matrice puntatori se i codici non sono standard
+            if ~all(input_RiverNetwork.codici_puntatori(:)==RiverNetwork.PUNTATORI(:))
+                pnt=RiverNetwork.sostituzioneValori(pnt,[RiverNetwork.PUNTATORI(:),input_RiverNetwork.codici_puntatori(:)]);
+            end
+           
             % Correzioni raster idroderivate
             ret(ret<0)=0;
             ret(ret>1)=1;
@@ -3223,6 +3228,58 @@ classdef RiverNetwork
             
         end
         
+        
+        function d=projDistanzeKm(x1,y1,x2,y2)
+            
+            % d=projDistanzeKm(x1,y1,x2,y2)  (NON ATTIVA)
+            %
+            % Calcola la distanza in km tra uno o più punti di coordinate (x1,y1) e (x2,y2).
+            % INPUT
+            %   x1 = ascisse del primo set di punti
+            %   y1 = ordinate del primo set di punti
+            %   x2 = ascisse del secondo set di punti
+            %   y2 = ordinate del secondo set di punti
+            % OUPTUT
+            %   d = matrice di tutte le possibili distanze (n_punti1 x n_punti2)
+            
+            
+            % Controllo input
+            if length(x1)~=length(y1) || length(x2)~=length(y2)
+                d=[];
+                disp('ERRORE: dimensioni di longitudine e latitudine non coerenti');
+                return
+            end
+            
+            R=6371; % raggio terrestre [km]
+            n1=length(x1);
+            n2=length(x2);
+            a=sin(deg2rad((ones(n1,1)*y2(:)'-y1(:)*ones(1,n2))/2)).^2+cos(deg2rad(y1(:)*ones(1,n2))).*cos(deg2rad(ones(n1,1)*y2(:)')).*sin(deg2rad((ones(n1,1)*x2(:)'-x1(:)*ones(1,n2))/2)).^2;
+            d=R*2*atan2(sqrt(a),sqrt(1-a));
+            
+        end
+        
+        
+        function B=sostituzioneValori(A,tabella_sostituzioni)
+            
+            % B=sostituzioneValori(A, tabella_sostituzioni)
+            %
+            % Sostituisce nella matrice A i valori della prima colonna di tabella_sostituzioni con i corrispondenti valori nella seconda colonna .
+            % INPUT
+            %   A = matrice iniziale
+            %   tabella_sostuzioni = matrice n x 2, colonna 1: valori presenti nella matrice A, colonna 2: nuovi valori con cui sostituirli
+            % OUTPUT
+            %   b = matrice con i valori sostituiti
+            
+            % Cerca i valori di A nella prima colonna della tabella
+            
+            
+            % Sostituzione
+            B=A;
+            [lia, locb]=ismember(A, tabella_sostituzioni(:,1));
+            B(lia)=tabella_sostituzioni(locb(lia), 2);
+            
+        end
+
         
         function punti_centrali_rami=getPuntiCentriRami(coord)
             
