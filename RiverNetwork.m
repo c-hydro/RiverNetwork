@@ -4,7 +4,7 @@ classdef RiverNetwork
     %
     % CLASSE RiverNetwork
     % Autore: Lorenzo Campo
-    % Versione: 1.0.0
+    % Versione: 1.0.1
     %
     % Ricostruisce la struttura topologica di un reticolo fluviale a partire dai raster delle idroderivate (reticolo,
     % puntatori, aree drenate, i raster devono essere in coordinate geografiche lon-lat e non devono avere valori sui bordi)
@@ -923,7 +923,7 @@ classdef RiverNetwork
             
             
             % Controllo input
-            if nargin==1
+            if nargin==2
                 numero_punti_vicini=5;      % numero di pixel più vicini per il controllo dell'area
             end
             
@@ -947,6 +947,11 @@ classdef RiverNetwork
             % Contorno del dominio
             indici_contorno=boundary(coord_punti_rami(:,1),coord_punti_rami(:,2));
             coord_contorno=coord_punti_rami(indici_contorno,:);
+            warning off;
+            contorno=polyshape(coord_contorno(:,1),coord_contorno(:,2));
+            warning on;
+            contorno_espanso=polybuffer(contorno,max(obj.dy,obj.dy)*1.5);
+            coord_contorno=contorno_espanso.Vertices;
             
             
             % Eventuali sezioni fuori dal dominio
