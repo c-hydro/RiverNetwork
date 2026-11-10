@@ -1,10 +1,10 @@
 classdef RiverNetwork
     
-    % Reticolo=RiverNetwork(input_RiverNewtork)
+    % Reticolo=RiverNetwork(input_RiverNewtork) 
     %
     % CLASSE RiverNetwork
     % Autore: Lorenzo Campo
-    % Versione: 1.0.2
+    % Versione: 1.0.3
     %
     % Ricostruisce la struttura topologica di un reticolo fluviale a partire dai raster delle idroderivate (reticolo,
     % puntatori, aree drenate, i raster devono essere in coordinate geografiche lon-lat e non devono avere valori sui bordi)
@@ -265,7 +265,7 @@ classdef RiverNetwork
             if nargin==0 || isempty(input_RiverNetwork)
                 disp(' ');
                 disp('Input costruttore del tipo:')
-                disp('input_RiverNetwork=struct(''reticolo'',[],''puntatori'',[],''aree_monte'',[],''longitudini'',[],''latitudini'',[],''correzioni'',[],''unita_misura_area'',[],''nome_dominio'',[],''codice_dominio'',[],''codici_puntatori'',[]);');                
+                disp('input_RiverNetwork=struct(''reticolo'',[],''puntatori'',[],''aree_monte'',[],''correzioni'',[],''unita_misura_area'',[],''nome_dominio'',[],''codice_dominio'',[]);');                
                 disp(' ');
                 return
             end
@@ -323,7 +323,7 @@ classdef RiverNetwork
             
             
             % Calcolo topologia del reticolo
-            obj.topologia_raster=obj.topologia_reticolo(input_RiverNetwork.reticolo,input_RiverNetwork.puntatori,input_RiverNetwork.aree_monte,input_RiverNetwork.codici_puntatori);
+            obj.topologia_raster=obj.topologia_reticolo(input_RiverNetwork.reticolo, input_RiverNetwork.puntatori, input_RiverNetwork.aree_monte);
             obj.topologia_raster_OP=obj.topologia_raster;
             
 
@@ -1039,7 +1039,7 @@ classdef RiverNetwork
                     case {'.txt','.csv'}
                         RiverNetwork.writeCsv([coord_sezioni,codici_sezioni(:)], nome_file_output, ' ');
                     case {'.shp'}
-                        shapewrite(struct('Geometry','Point','X',coord_sezioni(:,1),'Y',coord_sezioni(:,2),'codice_sezione',codici_sezioni(:),nome_file_output));
+                        shapewrite(struct('Geometry','Point','X',num2cell(coord_sezioni(:,1)),'Y',num2cell(coord_sezioni(:,2)),'codice_sezione',num2cell(codici_sezioni(:))),nome_file_output);
                 end
             end
 
@@ -2303,9 +2303,9 @@ classdef RiverNetwork
             % INPUT
             %   puntatori = file con la mappa dei puntatori idrologici (o struct con campi 'mappa','x','y')
             %   aree_monte = file con la mappa delle aree drenate (o struct con campi 'mappa','x','y')
-            %   sezioni = matrice n x 2 o n x 3 con le coordinate delle sezioni, nell'eventuale terza colonna 
+            %   sezioni = matrice n x 2 oppure n x 3 con le coordinate delle sezioni, nell'eventuale terza colonna 
             %             ci sono i codici che verranno assegnati alle aree di competenza
-            %   P = matrice 3 x 3 con i codici dei puntatori idrologici (OPZIONALE, NON ATTIVO)
+            %   P = matrice 3 x 3 con i codici dei puntatori idrologici (OPZIONALE)
             %   flag_fill = (OPZIONALE) 0: lascia le aree invariate (DEFAULT), 1: riempie le celle non assegnate del dominio con nearest neighbor dei valori delle aree di competenza assegnate
             %   nome_file_out = (OPZIONALE) nome del file raster (senza estenzione) in cui scrivere la mappa delle aree di competenza 
             %                   (se vuoto o assente non viene scritto nessun file)
@@ -2341,12 +2341,18 @@ classdef RiverNetwork
                 [pnt,x_mappa_aree_competenza,y_mappa_aree_competenza]=RiverNetwork.letturaRaster(puntatori,'puntatori');
             end
             if isnumeric(aree_monte)
-                pnt=aree_monte.mappa;
+                aree_monte=aree_monte.mappa;
             else
                 aree_monte=RiverNetwork.letturaRaster(aree_monte,'aree_monte');
             end
             [nrows,~]=size(pnt);
             dx=abs(x_mappa_aree_competenza(2)-x_mappa_aree_competenza(1)); dy=abs(y_mappa_aree_competenza(2)-y_mappa_aree_competenza(1));
+            
+            % Correzione matrice puntatori se i codici non sono standard
+            if ~all(P(:)==RiverNetwork.PUNTATORI(:))
+                pnt=RiverNetwork.sostituzioneValori(pnt,[P(:),RiverNetwork.PUNTATORI(:)]);
+                P=RiverNetwork.PUNTATORI(:);
+            end
             
                         
             % Coordinate sezioni
@@ -2491,7 +2497,8 @@ classdef RiverNetwork
             
             % Correzione matrice puntatori se i codici non sono standard
             if ~all(input_RiverNetwork.codici_puntatori(:)==RiverNetwork.PUNTATORI(:))
-                pnt=RiverNetwork.sostituzioneValori(pnt,[RiverNetwork.PUNTATORI(:),input_RiverNetwork.codici_puntatori(:)]);
+                pnt=RiverNetwork.sostituzioneValori(pnt,[input_RiverNetwork.codici_puntatori(:),RiverNetwork.PUNTATORI(:)]);
+                input_RiverNetwork.codici_puntatori=RiverNetwork.PUNTATORI;
             end
            
             % Correzioni raster idroderivate
@@ -2769,6 +2776,7 @@ classdef RiverNetwork
                 flag_areecomp=0;
             end
             
+            
             % eliminazione dati mancanti
             pnt(pnt<0)=NaN;
             aree_monte(aree_monte<0)=NaN;
@@ -2899,16 +2907,15 @@ classdef RiverNetwork
         end
         
         
-        function topologia_raster=topologia_reticolo(ret,pnt,aree_monte,P)
+        function topologia_raster=topologia_reticolo(ret,pnt,aree_monte)
             
-            % topologia_raster=topologia_reticolo(ret,pnt,aree_monte,P)
+            % topologia_raster=topologia_reticolo(ret,pnt,aree_monte)
             %
             % Ricostruisce rami e topologia di un dominio idrologico a partire dalle idroderivate.
             % INPUT:
             %   ret = mappa del reticolo (1 = cella di reticolo, 0 fuori dal reticolo)
             %   pnt = mappa dei puntatori idrologici del reticolo (0 fuori dal dominio)
             %   aree_monte = mappa delle aree drenate (0 fuori dal dominio)
-            %   P = matrice 3x3 dei codici dei puntatori idrologici (OPZIONALE)
             % OUTPUT:
             %   topologia_raster = struct con i seguenti campi:
             %                    indici_rami: cell array con gli indici matrice dei rami {913×1 cell}
@@ -2943,9 +2950,7 @@ classdef RiverNetwork
             
             
             % Codici puntatori di default
-            if nargin==3
-                [~,P]=obj.puntatori2direzioni;
-            end
+            P=RiverNetwork.PUNTATORI;
             
             
             % Puntatori idrologici e direzioni
