@@ -1,15 +1,14 @@
 classdef RiverNetwork
     
-    % Reticolo=RiverNetwork(input_RiverNewtork)
+    % Reticolo=RiverNetwork(input_RiverNewtork) 
     %
     % CLASSE RiverNetwork
     % Autore: Lorenzo Campo
-    % Versione: 1.0.0
+    % Versione: 1.0.5
     %
     % Ricostruisce la struttura topologica di un reticolo fluviale a partire dai raster delle idroderivate (reticolo,
-    % puntatori, aree drenate, i raster devono essere in coordinate geografiche lon-lat e non devono avere valori sui bordi)
-    % del dominio di interesse e opera sul reticolo stesso. Un reticolo può in generale contenere più bacini, 
-    % ogni bacino contiene uno o più rami, organizzati in aste. 
+    % puntatori, aree drenate, i raster non devono avere valori sui bordi) del dominio di interesse e opera sul reticolo stesso. 
+    % Un reticolo può in generale contenere più bacini, ogni bacino contiene uno o più rami, organizzati in aste. 
     % Può calcolare la corrispondenza tra due rappresentazioni dello stesso reticolo.
     %
     % INPUT COSTRUTTORE:
@@ -27,6 +26,9 @@ classdef RiverNetwork
     %                                         mappa : mappa dell'area drenata in ogni cella (NaN = fuori dal dominio)
     %                                         x : vettore delle longitudini
     %                                         y : vettore delle longitudini
+    %                           nodata (OPZIONALE): vettore con i valori nodata dei raster (tutti i valori vengono  eliminati da tutte le idroderivate), 
+    %                                               oppure cell array di 3 elementi (il primo valore viene eliminato da reticolo, il secondo da puntatori 
+    %                                               e il terzo da aree_monte)
     %                           correzioni (OPZIONALE): nome del file shape con le correzioni (deve contenere un campo "TIPO" con valori 1 o 2, 
     %                                                   se assente tutte le disconnessioni soo assunte di tipo 1) oppure una struct contenente 
     %                                                   le coordinate delle disconnessioni da applicare alla mappa del reticolo, 
@@ -47,7 +49,7 @@ classdef RiverNetwork
     %                                                       con n almeno un ordine di grandezza superiore al numero totale di rami,
     %                                                       es: reticolo con 1500 rami, codice dominio=10000 o 100000 o superiore). 
     %                                                       I rami e i bacini del reticolo avranno come codice codice_domino + un progressivo
-    %                           codici_puntatori (OPZIONALE, NON ATTIVO): matrice 3x3 con i codici delle direzioni di drenaggio coerenti con il raster puntatori.
+    %                           codici_puntatori (OPZIONALE): matrice 3x3 con i codici delle direzioni di drenaggio coerenti con il raster puntatori.
     %                                                         DEFAULT se non specificato: [7 8 9
     %                                                                                      4 5 6
     %                                                                                      1 2 3];
@@ -61,12 +63,12 @@ classdef RiverNetwork
     %     correzioni_zambesi(2).tipo_disconnessione=1;
     %     % Struttura di Input
     %     input_RiverNetwork_Zambesi=struct('reticolo','reticolo_Zambesi.tif',...
-    %                               'puntatori','puntatori_Zambesi.tif',...
-    %                               'aree_monte','aree_monte_Zambesi.tif',...
-    %                               'unita_misura_area','km2',...
-    %                               'correzioni',correzioni_zambesi,...
-    %                               'nome_dominio','Zambesi',...
-    %                               'codice_dominio',100000);
+    %                                       'puntatori','puntatori_Zambesi.tif',...
+    %                                       'aree_monte','aree_monte_Zambesi.tif',...
+    %                                       'unita_misura_area','km2',...
+    %                                       'correzioni',correzioni_zambesi,...
+    %                                       'nome_dominio','Zambesi',...
+    %                                       'codice_dominio',100000);
     %     % Creazione del reticolo
     %     ReticoloZambesi=RiverNetwork(input_RiverNetwork_Zambesi);
     %
@@ -89,6 +91,7 @@ classdef RiverNetwork
     %               distanze_sorgente: distanza dalla sorgente di ogni punto del ramo in km (lunghezza dell'asta fino a quel punto)
     %               rami_monte: indici dei rami a monte del ramo corrente (NON codici)
     %               ramo_valle: indice del ramo a valle del ramo corrente (NON codice)
+    %               distanze_sorgenti_spartiacque: distanza della sorgente dell'asta a cui appartiene il ramo dallo spartiacque in km
     %   bacini = struct con le informazioni dei bacini (insieme di rami connessi aventi come sezione di chiusura finale una foce),
     %            contiene i seguenti campi:
     %                   codice: codice del bacino (= codice del dominio + un progressivo, i bacini sono ordinati per area crescente)
@@ -110,6 +113,7 @@ classdef RiverNetwork
     %               area_drenata_km2: area drenata dell'asta (=area drenata del punto più a valle) in km2
     %               bacino : indice del bacino a cui appartiene l'asta (NON codice)
     %               distanze_sorgente: distanza dalla sorgente di ogni punto dell'asta in km
+    %               distanze_sorgenti_spartiacque: distanza della sorgente dallo spartiacque in km
     %
     %
     %
@@ -171,11 +175,13 @@ classdef RiverNetwork
         dx
         dy
         area_cella
+        tipo_proiezione
+        unita_coordinate
         
         % topologia
         topologia_raster
         
-        % variabili ausialiarie di calcolo
+        % variabili ausiliarie di calcolo
         VEC_OP;
         topologia_raster_OP;
         
@@ -217,7 +223,7 @@ classdef RiverNetwork
         Flag_Foci_Centroidi;
         Flag_Corrispondenza_Aste;
         Flag_Ricerca_Estesa;
-        
+                
         % Percorso di salvataggio dei risultati della corrispondenza
         Percorso_Output
         
@@ -265,7 +271,7 @@ classdef RiverNetwork
             if nargin==0 || isempty(input_RiverNetwork)
                 disp(' ');
                 disp('Input costruttore del tipo:')
-                disp('input_RiverNetwork=struct(''reticolo'',[],''puntatori'',[],''aree_monte'',[],''longitudini'',[],''latitudini'',[],''correzioni'',[],''unita_misura_area'',[],''nome_dominio'',[],''codice_dominio'',[],''codici_puntatori'',[]);');                
+                disp('input_RiverNetwork=struct(''reticolo'',[],''puntatori'',[],''aree_monte'',[],''nodata'',[],''correzioni'',[],''unita_misura_area'',[],''codici_puntatori'',[],''nome_dominio'',[],''codice_dominio'',[]);');                
                 disp(' ');
                 return
             end
@@ -274,12 +280,15 @@ classdef RiverNetwork
                 obj=[];
                 return
             end
-
+            
 
             % Assegnazione input
             % Coordinate
             obj.x=input_RiverNetwork.longitudini;
             obj.y=input_RiverNetwork.latitudini;
+            obj.tipo_proiezione=input_RiverNetwork.tipo_proiezione;
+            obj.unita_coordinate=input_RiverNetwork.unita_coordinate;
+
             % Codice del dominio
             obj.codice_dominio=input_RiverNetwork.codice_dominio;
             % Nome del dominio
@@ -292,8 +301,12 @@ classdef RiverNetwork
             
             % Dimensioni cella
             obj.dx=abs(obj.x(2)-obj.x(1)); obj.dy=abs(obj.y(2)-obj.y(1)); obj.ymedia=mean(obj.y);
-            obj.area_cella=deg2km(obj.dx)*deg2km(obj.dy)*cos(abs(deg2rad(obj.ymedia)));
-                        
+            if strcmp(obj.tipo_proiezione,'proiettato')
+                obj.area_cella=obj.dx*obj.dy;
+            else
+                obj.area_cella=deg2km(obj.dx)*deg2km(obj.dy)*cos(abs(deg2rad(obj.ymedia)));
+            end
+            
             
             % Lettura correzioni del reticolo
             if isfield(input_RiverNetwork,'correzioni')==0
@@ -323,10 +336,9 @@ classdef RiverNetwork
             
             
             % Calcolo topologia del reticolo
-            obj.topologia_raster=obj.topologia_reticolo(input_RiverNetwork.reticolo,input_RiverNetwork.puntatori,input_RiverNetwork.aree_monte,input_RiverNetwork.codici_puntatori);
+            obj.topologia_raster=obj.topologia_reticolo(input_RiverNetwork.reticolo, input_RiverNetwork.puntatori, input_RiverNetwork.aree_monte);
             obj.topologia_raster_OP=obj.topologia_raster;
             
-
             % Calcolo delle aree a monte in km2
             input_RiverNetwork.aree_monte(input_RiverNetwork.aree_monte<0)=NaN;
             if strcmp(input_RiverNetwork.unita_misura_area,'cells')
@@ -339,13 +351,15 @@ classdef RiverNetwork
                 aree_monte_rami_km2=obj.topologia_raster.aree_monte_rami;
                 aree_monte_km2=input_RiverNetwork.aree_monte;
             end
+            aree_monte_km2=single(full(aree_monte_km2));
+            aree_monte_rami_km2=single(aree_monte_rami_km2);
             
             
             % Strutture operative
             VEC=struct('coord_rami',[],'codici_rami',[],'aree_monte_rami_km2',[],'coord_to_node',[],'coord_foci',[],...
                        'aree_bacini_km2',[],'diametri_bacini',[],'centroidi_bacini',[]);
             
-            
+                   
             % Rami
             obj.n_rami=length(obj.topologia_raster.indici_rami);                % numero totale di rami
             obj.rami=struct('codice',[],'coord',[],'coord_from_node',[],'coord_to_node',[],'area_drenata_km2',[],'area_punti_km2',[],'bacino',[],'asta',[],'distanze_sorgente',[],'Strahler',[],'rami_monte',[],'ramo_valle',[]);
@@ -365,10 +379,10 @@ classdef RiverNetwork
                 [i_ramo,j_ramo]=ind2sub([obj.nrows,obj.ncols],obj.topologia_raster.indici_rami{r});   % coordinate matrice delle celle del ramo
                 obj.rami(r).coord=[obj.x(j_ramo)',obj.y(obj.nrows-i_ramo+1)'];                        % coordinate dei punti del ramo
                 obj.rami(r).coord_from_node=coord_from_node(r,:);                                     % coordinate del from-node
-                obj.rami(r).coord_to_node=coord_to_node(r,:);                                         % Coordinate del to-node
+                obj.rami(r).coord_to_node=coord_to_node(r,:);                                         % coordinate del to-node
                 obj.rami(r).area_drenata_km2=aree_monte_rami_km2(r);                                  % area drenata del ramo [km2]
                 obj.rami(r).area_punti_km2=aree_monte_km2(obj.topologia_raster.indici_rami{r});       % area drenata in ogni punto del ramo [km2]
-                obj.rami(r).bacino=tabella_rami_bacini(r,2);                                          % indice del bacino di appartenzenza del ramo
+                obj.rami(r).bacino=tabella_rami_bacini(r,2);                                          % indice del bacino di appartenenza del ramo
                 coord_rami(k+1:k+length(i_ramo),:)=obj.rami(r).coord;                                 % matrice con le coordinate di tutti i punti di tutti i rami
                 codici_rami(k+1:k+length(i_ramo)+1)=r;                                                % matrice con i codici rami per tutti i punti di tutti i rami
                 k=k+length(i_ramo)+1;
@@ -377,9 +391,8 @@ classdef RiverNetwork
             VEC.codici_rami=codici_rami;
             VEC.aree_monte_rami_km2=[obj.rami(:).area_drenata_km2]';
             VEC.coord_tonode=coord_to_node;
-            obj.rami_OP=obj.rami;                         % COPIA dei rami, coordinate operative (estensibili)
-            
-          
+            obj.rami_OP=obj.rami;                         % copia dei rami, coordinate operative (estendibili)
+                      
             % Rami a monte e a valle di ogni ramo
             indici_rami_monte=arrayfun(@(i) find(obj.topologia_raster.matrice_confluenze(i,:)), 1:size(obj.topologia_raster.matrice_confluenze,1), 'UniformOutput' ,false);
             indici_ramo_valle=arrayfun(@(i) find(obj.topologia_raster.matrice_confluenze(:,i)), 1:size(obj.topologia_raster.matrice_confluenze,1), 'UniformOutput' ,false);
@@ -415,25 +428,33 @@ classdef RiverNetwork
                 codici_bacini_aste=[codici_bacini_aste;b*ones(na,1)]; %#ok<AGROW>   % codici totali delle aste
                 k=k+na;
             end
-            obj.aste_OP=obj.aste;                                             % COPIA operativa delle aste 
+            obj.aste_OP=obj.aste;                                             % copia operativa delle aste 
             
             
             % Distanze dalla sorgente cumulate lungo le aste
-            lunghezze_cumulate_aste=cellfun(@(x) [0; cumsum( diag(RiverNetwork.geoDistanzeKm(x(1:end-1,1), x(1:end-1,2), x(2:end,1), x(2:end,2))) )] ,{obj.aste.coord},'UniformOutput',false);
+            lunghezze_cumulate_aste=cellfun(@(x) [0; cumsum( diag(obj.distanzeKm(x(1:end-1,1), x(1:end-1,2), x(2:end,1), x(2:end,2))) )] ,{obj.aste.coord},'UniformOutput',false);
             [obj.aste(:).distanze_sorgente]=lunghezze_cumulate_aste{:};
+            % Distanze dallo spartiacque alle sorgenti
+            coord_sorgenti=cell2mat(cellfun(@(x) x(1,:),{obj.aste(:).coord},'UniformOutput',false)');
+            distanze_sorgenti_spartiacque=cellfun(@(x) sum( diag(obj.distanzeKm(x(1:end-1,1), x(1:end-1,2), x(2:end,1), x(2:end,2))) ) , cellfun(@(x) obj.indici2coord(x),RiverNetwork.percorsoMonte(input_RiverNetwork.puntatori, input_RiverNetwork.aree_monte, obj.coord2Indici(coord_sorgenti)),'UniformOutput',false), 'UniformOutput', false);
+            [obj.aste(:).distanze_sorgenti_spartiacque]=distanze_sorgenti_spartiacque{:};
+            
+          
             % Distanze dalla sorgente lungo i rami
             tabella_coordinate_lunghezze_aste=[vertcat(obj.aste(:).coord),vertcat(lunghezze_cumulate_aste{:})];
             [~,indici]=ismember(vertcat(obj.rami(:).coord),tabella_coordinate_lunghezze_aste(:,1:2),'rows');
             L_coord_rami=cellfun(@(x) size(x,1),{obj.rami(:).coord});
             distanze_sorgente=mat2cell(tabella_coordinate_lunghezze_aste(indici,3),L_coord_rami,1);
             [obj.rami(:).distanze_sorgente]=distanze_sorgente{:};
-            
+            % Distanze dallo spartiacque alla sorgente dell'asta a cui appartiene ogni ramo
+            distanze_sorgenti_spartiacque_rami={obj.aste([obj.rami(:).asta]).distanze_sorgenti_spartiacque};
+            [obj.rami(:).distanze_sorgenti_spartiacque]=distanze_sorgenti_spartiacque_rami{:};
             
             
             % Bacini
-            contorni_bacini=obj.getContorniSetRami(obj.topologia_raster.rami_bacini);     % contorni (guscio convesso, ecc.) di ogni bacino
+            contorni_bacini=obj.getContorniSetRami(obj.topologia_raster.rami_bacini);           % contorni (boundary, ecc.) di ogni bacino
             obj.bacini=struct('codice',[],'rami',[],'aste',[],'foce',[],'area_km2',[],'coord_contorno',[],'diametro',[],'centroide',[]);
-            coord_foci=obj.indici2coord(obj.topologia_raster.indici_foci);                     % coordinate delle foci di tutti i bacini
+            coord_foci=obj.indici2coord(obj.topologia_raster.indici_foci);                      % coordinate delle foci di tutti i bacini
             for b=1:obj.n_bacini
                 obj.bacini(b).codice=obj.codice_dominio+b;                                      % codice del bacino
                 obj.bacini(b).rami=obj.topologia_raster.rami_bacini{b};                         % rami del bacino (ordinati per area drenata crescente)
@@ -449,7 +470,7 @@ classdef RiverNetwork
             VEC.aree_bacini_km2=[obj.bacini(:).area_km2]';
             VEC.diametri_bacini=[obj.bacini(:).diametro]';
             VEC.centroidi_bacini=vertcat(obj.bacini(:).centroide);
-            obj.bacini_OP=obj.bacini;                                       % COPIA operativa dei bacini
+            obj.bacini_OP=obj.bacini;                                       % copia operativa dei bacini
             
             
             % Strutture vettoriali operative
@@ -474,7 +495,7 @@ classdef RiverNetwork
             % Punti centrali di ogni ramo
             coord_rami=obj.getCoordSetRami(1:obj.n_rami);
             obj.punti_centrali_rami=RiverNetwork.getPuntiCentriRami(coord_rami);
-            obj.punti_centrali_rami_OP=obj.punti_centrali_rami;         % Copia operativa dei punti centrali dei rami
+            obj.punti_centrali_rami_OP=obj.punti_centrali_rami;         % copia operativa dei punti centrali dei rami
             
             
             % Copia operativa della matrice delle confluenze
@@ -613,7 +634,7 @@ classdef RiverNetwork
                 coord_tratti=RiverNetwork.trattiConnessionePolilinee(coord_npunti_rami_idraulico, coord_npunti_rami_idrologico);
                 lunghezze_medie_connettori=NaN(size(coord_tratti,3),1);
                 for t=1:size(coord_tratti,3)
-                    lunghezze_medie_connettori(t)=mean(diag(RiverNetwork.geoDistanzeKm(coord_tratti(1:3:end,1,t),coord_tratti(1:3:end,2,t),coord_tratti(2:3:end,1,t),coord_tratti(2:3:end,2,t))));
+                    lunghezze_medie_connettori(t)=mean(diag(obj.distanzeKm(coord_tratti(1:3:end,1,t),coord_tratti(1:3:end,2,t),coord_tratti(2:3:end,1,t),coord_tratti(2:3:end,2,t))));
                 end
                 
                 
@@ -684,7 +705,7 @@ classdef RiverNetwork
                 coord_tratti=RiverNetwork.trattiConnessionePolilinee(coord_npunti_rami_idraulico, coord_npunti_rami_idrologico);
                 lunghezze_medie_connettori=NaN(size(coord_tratti,3),1);
                 for t=1:size(coord_tratti,3)
-                    lunghezze_medie_connettori(t)=mean(diag(RiverNetwork.geoDistanzeKm(coord_tratti(1:3:end,1,t),coord_tratti(1:3:end,2,t),coord_tratti(2:3:end,1,t),coord_tratti(2:3:end,2,t))));
+                    lunghezze_medie_connettori(t)=mean(diag(obj.DistanzeKm(coord_tratti(1:3:end,1,t),coord_tratti(1:3:end,2,t),coord_tratti(2:3:end,1,t),coord_tratti(2:3:end,2,t))));
                 end
                                 
                 % scrittura dello shape dei connettori
@@ -724,7 +745,7 @@ classdef RiverNetwork
                     coord_tratti=RiverNetwork.trattiConnessionePolilinee(coord_npunti_rami_idraulico, coord_npunti_rami_idrologico);
                     lunghezze_medie_connettori=NaN(size(coord_tratti,3),1);
                     for t=1:size(coord_tratti,3)
-                        lunghezze_medie_connettori(t)=mean(diag(RiverNetwork.geoDistanzeKm(coord_tratti(1:3:end,1,t),coord_tratti(1:3:end,2,t),coord_tratti(2:3:end,1,t),coord_tratti(2:3:end,2,t))));
+                        lunghezze_medie_connettori(t)=mean(diag(obj.distanzeKm(coord_tratti(1:3:end,1,t),coord_tratti(1:3:end,2,t),coord_tratti(2:3:end,1,t),coord_tratti(2:3:end,2,t))));
                     end
                                         
                     % scrittura dello shape dei connettori
@@ -923,7 +944,7 @@ classdef RiverNetwork
             
             
             % Controllo input
-            if nargin==1
+            if nargin==2
                 numero_punti_vicini=5;      % numero di pixel più vicini per il controllo dell'area
             end
             
@@ -947,6 +968,11 @@ classdef RiverNetwork
             % Contorno del dominio
             indici_contorno=boundary(coord_punti_rami(:,1),coord_punti_rami(:,2));
             coord_contorno=coord_punti_rami(indici_contorno,:);
+            warning off;
+            contorno=polyshape(coord_contorno(:,1),coord_contorno(:,2));
+            warning on;
+            contorno_espanso=polybuffer(contorno,max(obj.dy,obj.dy)*1.5);
+            coord_contorno=contorno_espanso.Vertices;
             
             
             % Eventuali sezioni fuori dal dominio
@@ -1034,7 +1060,7 @@ classdef RiverNetwork
                     case {'.txt','.csv'}
                         RiverNetwork.writeCsv([coord_sezioni,codici_sezioni(:)], nome_file_output, ' ');
                     case {'.shp'}
-                        shapewrite(struct('Geometry','Point','X',coord_sezioni(:,1),'Y',coord_sezioni(:,2),'codice_sezione',codici_sezioni(:),nome_file_output));
+                        shapewrite(struct('Geometry','Point','X',num2cell(coord_sezioni(:,1)),'Y',num2cell(coord_sezioni(:,2)),'codice_sezione',num2cell(codici_sezioni(:))),nome_file_output);
                 end
             end
 
@@ -1167,6 +1193,8 @@ classdef RiverNetwork
                 
                 % Confronta i valori
                 if ~RiverNetwork.confrontaValori(valore_proprieta_obj, valore_proprieta_reticolo2)
+                    valori1=obj.(nome_proprieta); %#ok<NASGU>
+                    valori2=Reticolo2.(nome_proprieta); %#ok<NASGU>
                     fprintf('Le proprietà "%s" sono diverse.\n', nome_proprieta);
                     isEqual = false;
                     keyboard
@@ -1471,11 +1499,10 @@ classdef RiverNetwork
                 ReticoloDati.plotBacini(ReticoloDati.bacini(tabella_corrispondenza_bacini(indici_bacini_assegnati,2)),[1 0 0],2,0); %#ok<FNDSB>
                 % Vettori di connessione tra le foci
                 vettori_connessione=[reshape(obj.VEC.coord_foci(tabella_corrispondenza_bacini(indici_ok,1),:)' ,length(indici_ok)*2,1)';...
-                    reshape(ReticoloDati.VEC_OP.coord_foci(tabella_corrispondenza_bacini(indici_ok,2),:)',length(indici_ok)*2,1)';...
-                    NaN(1,length(indici_ok)*2)];
+                                     reshape(ReticoloDati.VEC_OP.coord_foci(tabella_corrispondenza_bacini(indici_ok,2),:)',length(indici_ok)*2,1)';...
+                                     NaN(1,length(indici_ok)*2)];
                 vettori_connessione=[reshape(vettori_connessione(:,1:2:end),numel(vettori_connessione)/2,1),reshape(vettori_connessione(:,2:2:end),numel(vettori_connessione)/2,1)];
                 plot(vettori_connessione(:,1),vettori_connessione(:,2),'c','Linewidth',2);
-                %plot(coord_contorno(:,1),coord_contorno(:,2),'k','Linewidth',3);
                 plot(obj.VEC.coord_foci(indici_bacini_idraulici,1),obj.VEC.coord_foci(indici_bacini_idraulici,2),'bo','MarkerSize',10);
                 plot(ReticoloDati.VEC_OP.coord_foci(indici_bacini_idrologici,1),ReticoloDati.VEC_OP.coord_foci(indici_bacini_idrologici,2),'ro','MarkerSize',10);
                 
@@ -1516,7 +1543,7 @@ classdef RiverNetwork
             n_bacini_idrologici=size(coord_foci_idrologico,1);
             
             % Distanze tra foci/centroidi e differenze tra le aree dei bacini
-            distanze_foci=RiverNetwork.geoDistanzeKm(coord_foci_idrologico(:,1),coord_foci_idrologico(:,2),coord_foci_idraulico(:,1),coord_foci_idraulico(:,2));
+            distanze_foci=obj.distanzeKm(coord_foci_idrologico(:,1),coord_foci_idrologico(:,2),coord_foci_idraulico(:,1),coord_foci_idraulico(:,2));
             differenze_aree_bacini=obj.DifferenzeVettori(aree_bacini_idrologico,aree_bacini_idraulico);
             
             % Distanze/differenze adimensionali
@@ -1529,10 +1556,10 @@ classdef RiverNetwork
             
             % Funzione di costo
             J=pesi(1)*(distanze_foci_ADIM./(ones(n_bacini_idrologici,1)*std(distanze_foci_ADIM))).^2+...
-                pesi(2)*(differenze_aree_bacini_ADIM./(ones(n_bacini_idrologici,1)*std(differenze_aree_bacini_ADIM))).^2;
+              pesi(2)*(differenze_aree_bacini_ADIM./(ones(n_bacini_idrologici,1)*std(differenze_aree_bacini_ADIM))).^2;
             if flag_tolleranza==1
                 indici_ammissibili=find(distanze_foci_ADIM<(ones(n_bacini_idrologici,1)*ErroriMax_DistFoci') &...
-                    differenze_aree_bacini_ADIM<(ones(n_bacini_idrologici,1)*ErroriMax_areaBacini'));
+                                        differenze_aree_bacini_ADIM<(ones(n_bacini_idrologici,1)*ErroriMax_areaBacini'));
                 J(setdiff(1:numel(J),indici_ammissibili))=Inf;
             end
             [minimi,indici_ottimo]=min(J,[],1);   % bacini che minimizzano il funzionale
@@ -1803,8 +1830,10 @@ classdef RiverNetwork
                 coord_rami_npunti_idrologico=ReticoloDati.coord_rami_n_punti_interpolazione_OP(:,ReticoloDati.aste_OP(tabella_corrispondenza_aste(a,2)).rami,:);
                 aree_rami_idrologico=[ReticoloDati.rami_OP(ReticoloDati.aste_OP(tabella_corrispondenza_aste(a,2)).rami).area_drenata_km2];
                 if length(aree_rami_idrologico)==1      % caso con UN solo ramo idrologico
+                    
                     tabella_corrispondenza_rami(k+1:k+length(aree_rami_idraulico),:)=[obj.aste(tabella_corrispondenza_aste(a,1)).rami(:), tabella_nuovi_indici_rami(ReticoloDati.aste_OP(tabella_corrispondenza_aste(a,2)).rami,1)*ones(length(aree_rami_idraulico),1) ];
                     k=k+length(aree_rami_idraulico);
+                    
                 else                                    % caso generale
                     
                     % Calcolo funzione di costo per tutte le combinazioni rami asta idraulica - rami asta idrologica
@@ -1927,7 +1956,7 @@ classdef RiverNetwork
             % Funzionale di costo per il confronto di dua bacini.
             % INPUT
             %   parametri_rototrasl = parametri della rototralsazione del bacino idrologico
-            %   ,coord_rami_idraulico = coordinate di tutti i rami del bacino idraulico
+            %   coord_rami_idraulico = coordinate di tutti i rami del bacino idraulico
             %   coord_rami_idrologico = coordinate di tutti i rami del bacino idrologico
             %   coord_polo = coordinate del polo di rotazione
             % OUTPUT
@@ -2279,8 +2308,33 @@ classdef RiverNetwork
             end
             
         end
-                
-       
+        
+        
+        function d=distanzeKm(obj,x1,y1,x2,y2)
+            
+            % d=distanzeKm(obj,x1,y1,x2,y2)
+            %
+            % Calcola la distanza in km tra uno o più punti di
+            % coordinate (x1,y1) e (x2,y2), scegliendo 
+            % la funzione corretta per coordinate geografiche o proiettate.
+            % INPUT
+            %   x1 = ascisse del primo set di punti
+            %   y1 = ordinate del primo set di punti
+            %   x2 = ascisse del secondo set di punti
+            %   y2 = ordinate del secondo set di punti
+            % OUPTUT
+            %   d = matrice di tutte le possibili distanze (n_punti1 x n_punti2)
+            
+            if strcmp(obj.unita_coordinate,'degree')
+                d=RiverNetwork.geoDistanzeKm(x1,y1,x2,y2);
+            else
+                d=RiverNetwork.projDistanzeKm(x1,y1,x2,y2);
+            end
+            
+            
+        end
+        
+        
         
     end
     
@@ -2298,9 +2352,9 @@ classdef RiverNetwork
             % INPUT
             %   puntatori = file con la mappa dei puntatori idrologici (o struct con campi 'mappa','x','y')
             %   aree_monte = file con la mappa delle aree drenate (o struct con campi 'mappa','x','y')
-            %   sezioni = matrice n x 2 o n x 3 con le coordinate delle sezioni, nell'eventuale terza colonna 
+            %   sezioni = matrice n x 2 oppure n x 3 con le coordinate delle sezioni, nell'eventuale terza colonna 
             %             ci sono i codici che verranno assegnati alle aree di competenza
-            %   P = matrice 3 x 3 con i codici dei puntatori idrologici (OPZIONALE, NON ATTIVO)
+            %   P = matrice 3 x 3 con i codici dei puntatori idrologici (OPZIONALE)
             %   flag_fill = (OPZIONALE) 0: lascia le aree invariate (DEFAULT), 1: riempie le celle non assegnate del dominio con nearest neighbor dei valori delle aree di competenza assegnate
             %   nome_file_out = (OPZIONALE) nome del file raster (senza estenzione) in cui scrivere la mappa delle aree di competenza 
             %                   (se vuoto o assente non viene scritto nessun file)
@@ -2336,12 +2390,18 @@ classdef RiverNetwork
                 [pnt,x_mappa_aree_competenza,y_mappa_aree_competenza]=RiverNetwork.letturaRaster(puntatori,'puntatori');
             end
             if isnumeric(aree_monte)
-                pnt=aree_monte.mappa;
+                aree_monte=aree_monte.mappa;
             else
                 aree_monte=RiverNetwork.letturaRaster(aree_monte,'aree_monte');
             end
             [nrows,~]=size(pnt);
             dx=abs(x_mappa_aree_competenza(2)-x_mappa_aree_competenza(1)); dy=abs(y_mappa_aree_competenza(2)-y_mappa_aree_competenza(1));
+            
+            % Correzione matrice puntatori se i codici non sono standard
+            if ~all(P(:)==RiverNetwork.PUNTATORI(:))
+                pnt=RiverNetwork.sostituzioneValori(pnt,[P(:),RiverNetwork.PUNTATORI(:)]);
+                P=RiverNetwork.PUNTATORI(:);
+            end
             
                         
             % Coordinate sezioni
@@ -2425,6 +2485,8 @@ classdef RiverNetwork
             else
                 [ret,x,y]=RiverNetwork.letturaRaster(input_RiverNetwork.reticolo,'reticolo');
             end
+            % Estrae proiezione (geografica/proiettata) e unità di misura delle distanze
+            [input_RiverNetwork.tipo_proiezione,input_RiverNetwork.unita_coordinate]=RiverNetwork.checkProiezione(input_RiverNetwork.reticolo);
             if isstruct(input_RiverNetwork.puntatori)
                 pnt=input_RiverNetwork.puntatori.mappa;
             else
@@ -2435,8 +2497,28 @@ classdef RiverNetwork
             else
                 [aree_monte,x,y]=RiverNetwork.letturaRaster(input_RiverNetwork.aree_monte,'aree_monte');
             end
+            
+            % Eliminazione nodata
+            if isfield(input_RiverNetwork,'nodata')
+                if iscell(input_RiverNetwork.nodata)
+                    ret(ismember(ret,input_RiverNetwork.nodata{1}))=NaN;
+                    pnt(ismember(pnt,input_RiverNetwork.nodata{2}))=NaN;
+                    aree_monte(ismember(aree_monte,input_RiverNetwork.nodata{3}))=NaN;
+                else
+                    ret(ismember(ret,input_RiverNetwork.nodata))=NaN;
+                    pnt(ismember(pnt,input_RiverNetwork.nodata))=NaN;
+                    aree_monte(ismember(aree_monte,input_RiverNetwork.nodata))=NaN;
+                end
+            end
+            
+            % Correzione unità di misura in caso di raster proiettati
+            if strcmp(input_RiverNetwork.unita_coordinate,'metre')
+                x=x/1000;
+                y=y/1000;
+            end
             input_RiverNetwork.longitudini=x;
             input_RiverNetwork.latitudini=y;
+            
             
             % Dimensioni raster
             if all(diff([size(ret,1),size(pnt,1),size(aree_monte,1)])==0)==0 || all(diff([size(ret,2),size(pnt,2),size(aree_monte,2)])==0)==0
@@ -2462,7 +2544,7 @@ classdef RiverNetwork
                     return
                 end
             end
-            
+                        
             % Unità misura area
             if isfield(input_RiverNetwork,'unita_misura_area')
                 if any(ismember({'cells','m2','km2'},input_RiverNetwork.unita_misura_area))==0
@@ -2484,6 +2566,13 @@ classdef RiverNetwork
             end
             input_RiverNetwork.codici_puntatori=P;
             
+            % Correzione matrice puntatori se i codici non sono standard
+            if ~all(input_RiverNetwork.codici_puntatori(:)==RiverNetwork.PUNTATORI(:))
+                pnt=RiverNetwork.sostituzioneValori(pnt,[input_RiverNetwork.codici_puntatori(:),RiverNetwork.PUNTATORI(:)]);
+                input_RiverNetwork.codici_puntatori=RiverNetwork.PUNTATORI;
+            end
+           
+                        
             % Correzioni raster idroderivate
             ret(ret<0)=0;
             ret(ret>1)=1;
@@ -2492,6 +2581,7 @@ classdef RiverNetwork
             ret(:,1)=NaN; ret(1,:)=NaN; ret(:,end)=NaN; ret(end,:)=NaN;
             pnt(:,1)=NaN; pnt(1,:)=NaN; pnt(:,end)=NaN; pnt(end,:)=NaN;
             aree_monte(:,1)=NaN; aree_monte(1,:)=NaN; aree_monte(:,end)=NaN; aree_monte(end,:)=NaN;
+            % assegnazione idroderivate
             input_RiverNetwork.reticolo=ret;
             input_RiverNetwork.puntatori=pnt;
             input_RiverNetwork.aree_monte=aree_monte;
@@ -2759,6 +2849,7 @@ classdef RiverNetwork
                 flag_areecomp=0;
             end
             
+            
             % eliminazione dati mancanti
             pnt(pnt<0)=NaN;
             aree_monte(aree_monte<0)=NaN;
@@ -2850,11 +2941,7 @@ classdef RiverNetwork
                     
                     % celle da aggiungere all'area
                     punti_nuovi=setdiff(unique([punti_nuovi,setdiff(punti_nuovi,area_TOT(1:k_area))]),area_processata_tot);
-                    try
-                        area_parz=unique([area_TOT(1:k_area),punti_nuovi]);
-                    catch
-                        keyboard
-                    end
+                    area_parz=unique([area_TOT(1:k_area),punti_nuovi]);
                     k_area=length(area_parz);
                     area_TOT(1:k_area)=area_parz;
                     punti_da_esam=punti_nuovi;
@@ -2877,7 +2964,6 @@ classdef RiverNetwork
                 j_area=j_area-1;
                 i_area=(n-2)-i_area+1;
                 area=sub2ind([n-2,m-2],n_orig-i_area+1,j_area);
-                %     save(nome_file_area_processata,'area_processata');
                 aree_drenate{s}=area;
             end
             
@@ -2889,16 +2975,113 @@ classdef RiverNetwork
         end
         
         
-        function topologia_raster=topologia_reticolo(ret,pnt,aree_monte,P)
+        function percorsi_monte=percorsoMonte(pnt,aree_monte,sezioni,P)
             
-            % topologia_raster=topologia_reticolo(ret,pnt,aree_monte,P)
+            % percorsi_monte=percorsoMonte(pnt,aree_monte,sezioni,P)
+            %
+            % Ricostruisce il percorso a monte di ogni sezione fino allo spartiacque più vicino, 
+            % selezionando ogni volta tra le celle contribuenti quella di area drenata massima 
+            % a partire dal raster delle aree cumulate e dei puntatori idrologici.
+            %
+            % INPUT:
+            %   pnt = mappa dei puntatori idrologici
+            %   aree_monte = mappa delle aree drenate
+            %   sezioni = matrice n x 2 con le coordinate matrice delle sezioni
+            %   P = codici dei puntatori idrologici (OPZIONALE)
+            % OUTPUT:
+            %   percorsi_monte = cell array in ogni elemento del quale c'e' la sequenza valle-monte delle celle 
+            %                    dalla sezione di partenza fino allo spartiacque
+            
+            if nargin==3
+                P=RiverNetwork.PUNTATORI;
+            end
+            
+            
+            % eliminazione dati mancanti
+            pnt(pnt<0)=NaN;
+            aree_monte(aree_monte<0)=NaN;
+            [n,m]=size(pnt);
+            [n_orig,~]=size(pnt);
+            
+            
+            % matrici ausiliarie
+            M=NaN(n+2,m+2);
+            M(2:end-1,2:end-1)=pnt;
+            pnt=M;
+            [n,m]=size(pnt);
+            P=P(end:-1:1,end:-1:1);
+            dd=[P(1:4)';P(6:end)'];   % puntatori tranne la cella stessa
+            iD=[-n-1 -n -n+1 -1 0 1 n-1 n n+1]';
+            ND=length(iD);
+            
+            
+            % RICOSTRUZIONE PERCORSI A MONTE
+            
+            % nuove coordinate delle sezioni sulla matrice ingrandita (originale+cornice)
+            N=size(sezioni,1);
+            elenco_sezioni=zeros(1,N);
+            for i=1:N
+                elenco_sezioni(i)=sub2ind([n,m],sezioni(i,1)+1,sezioni(i,2)+1);
+            end
+            
+            % Ciclo Principale
+            percorsi_monte=cell(1,length(elenco_sezioni));
+            for s=1:length(elenco_sezioni)
+                
+                % sorgente corrente
+                p=elenco_sezioni(s);
+                
+                % costruzione del percorso fino allo spartiacque
+                percorso_corrente=single(NaN(ceil(max(size(pnt))/10),1));
+                percorso_corrente(1)=p;
+                k=1;
+                while 1
+                    
+                    % celle delle 8 che circondano la cella corrente che puntano verso di essa
+                    i_punti_intorno=setdiff(ones(ND,1)*p+iD,p);
+                    celle_contribuenti=(i_punti_intorno((pnt(i_punti_intorno)-dd)==0))';
+                    if isempty(celle_contribuenti)
+                        break
+                    end
+                    
+                    % cella contribuente di area massima
+                    aree_celle_contribuenti=aree_monte(celle_contribuenti);
+                    [~,indice_area_massima]=max(aree_celle_contribuenti);
+                    p=celle_contribuenti(indice_area_massima);
+                    
+                    % aggiornamento del percorso
+                    k=k+1;
+                    percorso_corrente(k)=p;
+                    
+                end
+                percorsi_monte{s}=percorso_corrente(1:find(isfinite(percorso_corrente),1,'last'));
+                
+            end
+            
+            
+            % conversione delle coordinate sulla griglia originale
+            for s=1:length(percorsi_monte)
+                percorso=percorsi_monte{s};
+                [i_percorso,j_percorso]=ind2sub([n,m],double(percorso));
+                i_percorso=i_percorso-1;
+                j_percorso=j_percorso-1;
+                i_percorso=(n-2)-i_percorso+1;
+                percorso=sub2ind([n-2,m-2],n_orig-i_percorso+1,j_percorso);
+                percorsi_monte{s}=percorso;
+            end
+            
+        end
+        
+        
+        function topologia_raster=topologia_reticolo(ret,pnt,aree_monte)
+            
+            % topologia_raster=topologia_reticolo(ret,pnt,aree_monte)
             %
             % Ricostruisce rami e topologia di un dominio idrologico a partire dalle idroderivate.
             % INPUT:
             %   ret = mappa del reticolo (1 = cella di reticolo, 0 fuori dal reticolo)
             %   pnt = mappa dei puntatori idrologici del reticolo (0 fuori dal dominio)
             %   aree_monte = mappa delle aree drenate (0 fuori dal dominio)
-            %   P = matrice 3x3 dei codici dei puntatori idrologici (OPZIONALE)
             % OUTPUT:
             %   topologia_raster = struct con i seguenti campi:
             %                    indici_rami: cell array con gli indici matrice dei rami {913×1 cell}
@@ -2925,17 +3108,11 @@ classdef RiverNetwork
             ret(ret<0 | isnan(ret))=0;
             pnt(pnt<0 | isnan(pnt))=0;
             aree_monte(aree_monte<0 | isnan(aree_monte))=0;
-            try
-                pnt(ret==1 & pnt==0)=5;   % reticolo privo di puntatori -> pit
-            catch
-                keyboard
-            end
-            
+            pnt(ret==1 & pnt==0)=5;   % reticolo privo di puntatori -> pit
+
             
             % Codici puntatori di default
-            if nargin==3
-                [~,P]=obj.puntatori2direzioni;
-            end
+            P=RiverNetwork.PUNTATORI;
             
             
             % Puntatori idrologici e direzioni
@@ -3129,6 +3306,7 @@ classdef RiverNetwork
             topologia_raster.indici_finali_rami=indici_finali_rami;
             topologia_raster.aree_monte_rami=aree_monte_rami;
             topologia_raster.rami_bacini=rami_bacini;
+            topologia_raster=RiverNetwork.conversioneTipoVariabile(topologia_raster,'full');  % eliminazione delle variabili sparse
             topologia_raster.matrice_confluenze=matrice_confluenze;
             
             
@@ -3150,7 +3328,7 @@ classdef RiverNetwork
             coord_rami_x=coordinate_polilinee(:,1); %#ok<NASGU>
             coord_rami_y=coordinate_polilinee(:,2); %#ok<NASGU>
             stringa_geo_struttura='geo_struttura=struct(''Geometry'',''Line'',''X'',coord_rami_x,''Y'',coord_rami_y,';
-            % cistruzione della tabella degli attributi nella geo-struttura
+            % costruzione della tabella degli attributi nella geo-struttura
             for c=1:size(tabella_campi,2)
                 stringa_geo_struttura=[stringa_geo_struttura,'''',tabella_campi{1,c},''',tabella_campi(2:end,',num2str(c),'),']; %#ok<AGROW>
             end
@@ -3218,6 +3396,54 @@ classdef RiverNetwork
             
         end
         
+        
+        function d=projDistanzeKm(x1,y1,x2,y2)
+            
+            % d=projDistanzeKm(x1,y1,x2,y2)
+            %
+            % Calcola la distanza in km tra uno o più punti di coordinate (x1,y1) e (x2,y2).
+            % INPUT
+            %   x1 = ascisse del primo set di punti
+            %   y1 = ordinate del primo set di punti
+            %   x2 = ascisse del secondo set di punti
+            %   y2 = ordinate del secondo set di punti
+            % OUPTUT
+            %   d = matrice di tutte le possibili distanze (n_punti1 x n_punti2)
+            
+            
+            % Controllo input
+            if length(x1)~=length(y1) || length(x2)~=length(y2)
+                d=[];
+                disp('ERRORE: dimensioni di ascisse e coordinate non coerenti');
+                return
+            end
+            
+            d=pdist2([x1(:),y1(:)],[x2(:),y2(:)]);
+                        
+        end
+        
+        
+        function B=sostituzioneValori(A,tabella_sostituzioni)
+            
+            % B=sostituzioneValori(A, tabella_sostituzioni)
+            %
+            % Sostituisce nella matrice A i valori della prima colonna di tabella_sostituzioni con i corrispondenti valori nella seconda colonna .
+            % INPUT
+            %   A = matrice iniziale
+            %   tabella_sostuzioni = matrice n x 2, colonna 1: valori presenti nella matrice A, colonna 2: nuovi valori con cui sostituirli
+            % OUTPUT
+            %   b = matrice con i valori sostituiti
+            
+            % Cerca i valori di A nella prima colonna della tabella
+            
+            
+            % Sostituzione
+            B=A;
+            [lia, locb]=ismember(A, tabella_sostituzioni(:,1));
+            B(lia)=tabella_sostituzioni(locb(lia), 2);
+            
+        end
+
         
         function punti_centrali_rami=getPuntiCentriRami(coord)
             
@@ -3446,7 +3672,7 @@ classdef RiverNetwork
                 
                 % distanza per punti corrispondenti
                 errori_distanze_adim=squeeze(mean( ( ( repmat(squeeze(coord_polilinee2(:,:,1)),1,1,n_polilinee1) - repmat( reshape(squeeze( coord_polilinee1(:,:,1) ), [n_punti,1,n_polilinee1]  ),1,n_polilinee2,1) ).^2 + ...
-                    ( repmat(squeeze(coord_polilinee2(:,:,2)),1,1,n_polilinee1) - repmat( reshape(squeeze( coord_polilinee1(:,:,2) ), [n_punti,1,n_polilinee1]  ),1,n_polilinee2,1) ).^2 ) ,1) )' ./  (ones(n_polilinee2,1)*L_polilinee1);
+                                              ( repmat(squeeze(coord_polilinee2(:,:,2)),1,1,n_polilinee1) - repmat( reshape(squeeze( coord_polilinee1(:,:,2) ), [n_punti,1,n_polilinee1]  ),1,n_polilinee2,1) ).^2 ) ,1) )' ./  (ones(n_polilinee2,1)*L_polilinee1);
                                 
             end
             
@@ -3640,6 +3866,7 @@ classdef RiverNetwork
             flag_errore=0;
             [mappa,x,y]=deal([]);
             if isstruct(input_mappa) && ~ischar(input_mappa)    % struttura mappa
+                
                 if min(size(input_mappa.mappa))>1
                     mappa=input_mappa.mappa;
                     if isfield(input_mappa,'x')
@@ -3653,19 +3880,37 @@ classdef RiverNetwork
                         y=[];
                     end
                 else
-                    keyboard
                     disp(['ERRORE nell''input ',nome_variabile,': è una variabile numerica ma non è una matrice.'])
                 end
+                
             elseif ischar(input_mappa)                          % lettura da file
+                
                 if exist(input_mappa,'file')==0
                     disp(['ERRORE nell''input ',nome_variabile,': file ',input_mappa,' NON TROVATO.']);
                     flag_errore=1;
                     return;
                 end
+                
                 switch input_mappa(end-2:end)
-                    case {'tif','tiff'}
-                        [mappa,R]=geotiffread(input_mappa); %#ok<ASGLU>
-                        nomi_lonlat={'LongitudeLimits','LatitudeLimits','CellExtentInLongitude','CellExtentInLatitude'};
+                    
+                    case {'tif','tiff'}     % geotiff
+                        
+                        info=imfinfo(input_mappa);
+                        if strcmp(info(1).ColorType,'indexed')
+                            [mappa,~,R]=geotiffread(input_mappa);
+                        else
+                            [mappa,R]=geotiffread(input_mappa);
+                        end
+                        if isobject(R)
+                            flag_longitudine=isprop(R,'LongitudeLimits');
+                        elseif isstruct(R)
+                            flag_longitudine=isfield(R,'LongitudeLimits');
+                        end
+                        if flag_longitudine   % coordinate geografiche o proiettate
+                            nomi_lonlat={'LongitudeLimits','LatitudeLimits','CellExtentInLongitude','CellExtentInLatitude'};
+                        else
+                            nomi_lonlat={'XWorldLimits','YWorldLimits','CellExtentInWorldX','CellExtentInWorldY'};
+                        end
                         nomelon=nomi_lonlat{1};
                         nomelat=nomi_lonlat{2};
                         nomedx=nomi_lonlat{3};
@@ -3687,20 +3932,28 @@ classdef RiverNetwork
                         y1=min(lat); y2=max(lat);
                         x=x1+dx/2:dx:x2-dx/2;
                         y=y1+dy/2:dy:y2-dy/2;
-                    case {'asc','txt'}
+                        
+                    case {'asc','txt'}      % raster ASCII
+                        
                         [mappa,R]=arcgridread(input_mappa);
                         [n,m]=size(mappa);
                         dx=abs(R(2,1)); dy=abs(R(1,2));
                         x1=R(3,1)+dx; y2=R(3,2)-dy;
                         x=x1:dx:x1+(m-1)*dx;
                         y=y2-(n-1)*dy:dy:y2;
+                        
                     otherwise
+                        
                         disp(['ERRORE nell''input ',nome_variabile,': deve essere il nome di un raster .tif o .asc/.txt']);
                         flag_errore=1;
+                        
                 end
+                
             else
+                
                 disp(['ERRORE nell''input ',nome_variabile,': deve essere una matrice o il nome di un raster .tif o .asc/.txt']);
                 flag_errore=1;
+                
             end
         end
         
@@ -3951,7 +4204,7 @@ classdef RiverNetwork
                 else
                     % avanzamento del percorso di una cella verso valle
                     k=k+1;
-                    indici_ramo(k)=sub2ind([nrows,ncols],ip+direzioni(pnt(indici_ramo(k-1)),1),jp+direzioni(pnt(indici_ramo(k-1)),2)); % %#ok<AGROW>
+                    indici_ramo(k)=sub2ind([nrows,ncols],ip+direzioni(pnt(indici_ramo(k-1)),1),jp+direzioni(pnt(indici_ramo(k-1)),2));
                 end
             end
             indici_ramo=indici_ramo(1:min(k,length(indici_ramo)));
@@ -3981,6 +4234,7 @@ classdef RiverNetwork
             %   coord_aste = coordinate dei punti dell'asta, da monte verso valle
             %   aree_aste = area drenata per ogni asta
        
+
             
             % selezione ramo foce
             %kc=0;
@@ -4050,6 +4304,7 @@ classdef RiverNetwork
                     % area drenata dell'asta
                     aree_aste{k_asta}=aree_monte_rami(rami_asta(1));
                     
+                    
                     % prossima asta
                     [massimo,indice]=max(aree_monte_rami(elenco_rami)); %#ok<ASGLU>
                     ramo=elenco_rami(indice);
@@ -4059,7 +4314,6 @@ classdef RiverNetwork
                 coord_aste=coord_aste(1:k_asta);
                 aree_aste=aree_aste(1:k_asta);
             end
-            
             
         end
         
@@ -4099,6 +4353,189 @@ classdef RiverNetwork
             % riordinamento degli spostamenti se la matrice dei puntatori non è quella standard
             for i=1:numel(P)
                 direzioni(P(i),:)=DIR(i,:);
+            end
+            
+        end
+        
+        
+        function [tipo_geotiff,unita_coordinate,crs,info]=infoProjGeotif(nome_file)
+            
+            % [tipo_geotiff,unita_coordinate,crs,info]=infoProjGeotif(nome_file)
+            %
+            % Identifica il sistema di coordinate di un file geotif.
+            % INPUT:
+            % 	nome_file = nome del file geotif
+            % OUTPUT:
+            %   tipo_geotiff = 'geografico', 'proiettato', 'geocentrico' o 'sconosciuto'
+            %   unita_coordinate = unità di misura delle coordinate
+            %   crs = nome del sistema di riferimento
+            %   info = struttura restituita da geotiffinfo
+            
+            
+            % Inizializzazione
+            tipo_geotiff='sconosciuto';
+            unita_coordinate='sconosciuta';
+            crs='sconosciuto';
+            
+            % Lettura delle informazioni GeoTIFF
+            info=geotiffinfo(nome_file);
+            info = info(1);  % nel caso di più mappe considera la prima
+            
+            % Identifica il tipo di sistema di riferimento
+            if isfield(info, 'ModelType') && ~isempty(info.ModelType)
+                
+                switch lower(info.ModelType)
+                    
+                    case 'modeltypegeographic'
+                        
+                        % Coordinate geografiche
+                        tipo_geotiff='geografico';
+                        
+                        % Nome del sistema di riferimento
+                        if isfield(info,'GCS') && ~isempty(info.GCS)
+                            crs=info.GCS;
+                        end
+                        
+                        % Unità angolari
+                        if isfield(info,'UOMAngle') && ~isempty(info.UOMAngle)
+                            unita_coordinate=info.UOMAngle;
+                        else
+                            unita_coordinate='sconosciuta';
+                        end
+                        
+                    case 'modeltypeprojected'
+                        
+                        % Coordinate proiettate
+                        tipo_geotiff='proiettato';
+                        
+                        % Nome del sistema di riferimento
+                        if isfield(info,'PCS') && ~isempty(info.PCS)
+                            crs=info.PCS;
+                        elseif isfield(info,'Projection') && ~isempty(info.Projection)
+                            crs=info.Projection;
+                        end
+                        
+                        % Unità lineari
+                        if isfield(info,'UOMLength') && ~isempty(info.UOMLength)
+                            unita_coordinate=info.UOMLength;
+                        elseif isfield(info,'UOMLengthInMeters') && ~isempty(info.UOMLengthInMeters)
+                            unita_coordinate=sprintf('unità lineare (%.12g m)',info.UOMLengthInMeters);
+                        end
+                        
+                    case 'modeltypegeocentric'
+                        
+                        % Coordinate geocentriche
+                        tipo_geotiff='geocentrico';
+                        if isfield(info,'UOMLength') && ~isempty(info.UOMLength)
+                            unita_coordinate=info.UOMLength;
+                        end
+                        
+                end
+                
+            end
+            
+        end
+
+
+        function [tipo_proiezione,unita_coordinate]=checkProiezione(mappa)
+            
+            % [tipo_geotiff,unita_coordinate]=checkProiezione(mappa)
+            %
+            % Cerca di determinare se un file raster è in
+            % coordinate geografiche o proiettate
+            % INPUT
+            %   mappa = struct (campi .mappa, .x, .y) oppure nome di un file raster (.txt/.asc o .tif)
+            % OUTPUT
+            %   tipo_proiezione = 'geografico', 'proiettato', 'geocentrico' o 'sconosciuto'
+            %   unita_coordinate = unità di misura delle coordinate
+            
+            if isstruct(mappa)
+                [x,y]=deal(mappa.x,mappa.y);
+                [tipo_proiezione,unita_coordinate]=RiverNetwork.checkLimitiCoordinate(x,y);
+            else
+                [~,~,estensione]=fileparts(mappa);
+                switch estensione
+                    case {'.txt','.asc'}    % raster ASCII
+                        [~,x,y]=RiverNetwork.letturaRaster(mappa);
+                        [tipo_proiezione,unita_coordinate]=RiverNetwork.checkLimitiCoordinate(x,y);
+                    case {'.tif','.tiff'}   % geotiff
+                        [tipo_proiezione,unita_coordinate]=RiverNetwork.infoProjGeotif(mappa);
+                end
+                
+            end
+        end
+        
+        
+        function [tipo_proiezione,unita_coordinate]=checkLimitiCoordinate(x,y)
+            
+            % [tipo_proiezione,unita_coordinate]=checkLimitiCoordinate(x,y)
+            %
+            % Controlla dal range delle coordinate se si stratta di 
+            % coordinate geografiche o proiettate
+            % INPUT
+            %   x = ascisse
+            %   y = ordinate
+            % OUTPUT
+            %   tipo_proiezione = 'geografico' o 'proiettato'
+            %   unita_coordinate = unità di misura delle coordinate
+            
+            if min(x)>=-180 && max(x)<=180 && min(y)>=-90 && max(y)<=90
+                tipo_proiezione='geografico';
+                unita_coordinate='degree';
+            else
+                tipo_proiezione='proiettato';
+                unita_coordinate='metre';
+            end
+            
+        end
+        
+        
+        function S=conversioneTipoVariabile(S,tipo_numerico)
+            
+            % S=conversioneTipoVariabile(S,tipo_numerico)
+            %
+            % Converte tutti i valori numerici contenuti nella variabile S in un dato formato numerico (es: 'single').
+            % INPUT
+            %   S = variabile in ingresso
+            %   tipo_numerico = stringa con il tipo ('single','int','double', ecc, oppure 'full' per convertire matrici sparse)
+            % OUTPUT
+            %   S = variabile con i valori modificati
+            
+            
+            if isnumeric(S)     % S è un numero/vettore/matrice
+                
+                if strcmp(tipo_numerico,'full')
+                    S=full(S);
+                else
+                    S=cast(S,tipo_numerico);
+                end
+                
+            elseif iscell(S)    % S è un cell array
+                
+                % Converte ricorsivamente gli elementi del cell array
+                for i=1:numel(S)
+                    S{i}=RiverNetwork.conversioneTipoVariabile(S{i},tipo_numerico);
+                end
+                
+            elseif isstruct(S) || isobject(S)  % S è una struct o un oggetto
+                
+                % Se S è un oggetto identifica tutte le property
+                if isobject(S)
+                    mc=metaclass(S);
+                    campi=mc.PropertyList;
+                else
+                    campi=fieldnames(S);
+                end
+                
+                % Converte ricorsivamente i campi o le property di S
+                for i=1:numel(S)
+                    for j=1:numel(campi)
+                        if ischar(S(i).(campi{j}))==0
+                            S(i).(campi{j})=RiverNetwork.conversioneTipoVariabile(S(i).(campi{j}),tipo_numerico);
+                        end
+                    end
+                end
+        
             end
             
         end
